@@ -31,6 +31,14 @@ class TestApplySampleMaxResponseLen:
         assert params == {"temperature": 1.0, "max_new_tokens": limit}
         assert _RUN_PARAMS["max_new_tokens"] == 100
 
+    def test_a_run_without_a_bound_accepts_any_positive_limit(self):
+        unbounded = {"temperature": 1.0, "max_new_tokens": None}
+        params = apply_sample_max_response_len(unbounded, Sample(prompt="p", max_response_len=10**6))
+
+        assert params["max_new_tokens"] == 10**6
+        with pytest.raises(ValueError, match="must be an int"):
+            apply_sample_max_response_len(unbounded, Sample(prompt="p", max_response_len=0))
+
     @pytest.mark.parametrize("limit", [101, 0, -1, True, 40.0, "40"])
     def test_a_limit_outside_the_run_bound_is_rejected(self, limit):
         with pytest.raises(ValueError, match=r"must be an int in \[1, 100\]"):

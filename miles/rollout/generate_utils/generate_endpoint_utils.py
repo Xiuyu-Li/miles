@@ -59,12 +59,18 @@ def apply_sample_max_response_len(sampling_params: dict[str, Any], sample: Sampl
 
     The incoming ``max_new_tokens`` is the run's upper bound (``--rollout-max-response-len``, or an eval
     dataset's limit) that training memory and packing are sized from, so a sample may only lower it; a
-    larger value is an error rather than being clamped silently.
+    larger value is an error rather than being clamped silently. A run without that bound (``None``) accepts
+    any positive budget.
     """
     if (limit := sample.max_response_len) is None:
         return sampling_params
-    upper_bound = sampling_params["max_new_tokens"]
-    if isinstance(limit, bool) or not isinstance(limit, int) or not 0 < limit <= upper_bound:
+    upper_bound = sampling_params.get("max_new_tokens")
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or limit < 1
+        or (upper_bound is not None and limit > upper_bound)
+    ):
         raise ValueError(
             f"sample (index={sample.index}) max_response_len={limit!r} must be an int in [1, {upper_bound}], "
             "the run's max_new_tokens"
