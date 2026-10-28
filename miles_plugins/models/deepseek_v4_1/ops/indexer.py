@@ -1,5 +1,6 @@
 import functools
 import os
+from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
@@ -14,7 +15,7 @@ from miles.kernels.position.rope import apply_rotary_emb
 from miles.kernels.quant.fake_quant import fake_quant_fp4
 from miles.utils.replay_base import indexer_replay_manager
 from miles_plugins.models.deepseek_v4.ops.norm import RMSNorm
-from miles_plugins.models.deepseek_v4_1.ops.thd_utils import SegmentSpan
+from miles_plugins.models.deepseek_v4.ops.thd_utils import ThdLayout
 
 
 def select_candidate_blocks(
@@ -128,6 +129,29 @@ def indexer_select(
     if is_candidate_source:
         candidates = cand_parts[0] if len(cand_parts) == 1 else torch.cat(cand_parts, dim=1)
     return idx, candidates
+
+
+@dataclass(frozen=True)
+class SegmentSpan:
+    """One segment's share of this rank: its local rows and its sequence-major compressed keys."""
+
+    row_start: int
+    row_end: int
+    key_start: int
+    key_end: int
+
+
+def segment_spans(thd: ThdLayout, *, ratio: int, seqlen_local: int) -> list[SegmentSpan]:
+    """The segments this rank holds rows of, read off the host lengths so nothing syncs."""
+    spans, start, key_start = [], 0, 0
+    lo, hi = thd.global_start, thd.global_start + seqlen_local
+    for n in thd.seq_lens:
+        first, last = max(start, lo), min(start + n, hi)
+        if first < last:
+            spans.append(SegmentSpan(first - lo, last - lo, key_start, key_start + n // ratio))
+        start += n
+        key_start += n // ratio
+    return spans
 
 
 def indexer_select_segments(

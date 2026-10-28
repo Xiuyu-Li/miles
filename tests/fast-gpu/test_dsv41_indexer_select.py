@@ -14,8 +14,11 @@ pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA requ
 
 from miles.kernels.attention.dsa.topk import get_dsa_topk_fn  # noqa: E402
 from miles_plugins.models.deepseek_v4.ops.thd_utils import ThdLayout  # noqa: E402
-from miles_plugins.models.deepseek_v4_1.ops.indexer import indexer_select, indexer_select_segments  # noqa: E402
-from miles_plugins.models.deepseek_v4_1.ops.thd_utils import segment_spans  # noqa: E402
+from miles_plugins.models.deepseek_v4_1.ops.indexer import (  # noqa: E402
+    indexer_select,
+    indexer_select_segments,
+    segment_spans,
+)
 
 HEADS, DIM, TOPK = 32, 128, 512
 SEGMENTS = (1100, 37, 1, 2401, 75)  # odd lengths; one has no compressed key at ratio 2

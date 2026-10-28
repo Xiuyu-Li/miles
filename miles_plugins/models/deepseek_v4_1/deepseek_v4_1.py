@@ -41,10 +41,9 @@ from miles_plugins.models.deepseek_v4.ops.grouped_matmul import GroupedMatmul
 from miles_plugins.models.deepseek_v4.ops.rope import wrapped_precompute_freqs_cis
 from miles_plugins.models.deepseek_v4.ops.thd_utils import ThdLayout, get_q_positions_thd, get_window_topk_idxs_thd
 from miles_plugins.models.deepseek_v4_1.engram import DeepSeekV41Engram
-from miles_plugins.models.deepseek_v4_1.ops.compressor import DeepSeekV41Compressor
-from miles_plugins.models.deepseek_v4_1.ops.indexer import DeepSeekV41Indexer
+from miles_plugins.models.deepseek_v4_1.ops.compressor import DeepSeekV41Compressor, compressor_rows_thd
+from miles_plugins.models.deepseek_v4_1.ops.indexer import DeepSeekV41Indexer, segment_spans
 from miles_plugins.models.deepseek_v4_1.ops.kvnorm import compressed_kv_stored, kv_norm_rope_fp8
-from miles_plugins.models.deepseek_v4_1.ops.thd_utils import compressor_rows_thd, segment_spans
 
 HC_FUSED = os.environ.get("MILES_DSV41_HC_FUSED", "0") == "1"
 
