@@ -40,7 +40,14 @@ def _resolve_reward_config(args, sample: Sample) -> tuple[CustomFunctionConfig |
     # Spec fields win when set; unset/empty fields fall back to sample metadata and process-wide args.
     spec = sample.reward_spec
     metadata = sample.metadata if isinstance(sample.metadata, dict) else {}
-    custom_rm_path = (spec.custom_rm_path if spec is not None else None) or args.custom_rm_path
+    metadata_custom_rm_path = metadata.get("custom_rm_path")
+    if metadata_custom_rm_path is not None and not isinstance(metadata_custom_rm_path, str):
+        raise TypeError(
+            f"metadata['custom_rm_path'] must be a function path string, got {type(metadata_custom_rm_path).__name__}"
+        )
+    custom_rm_path = (
+        (spec.custom_rm_path if spec is not None else None) or metadata_custom_rm_path or args.custom_rm_path
+    )
     if isinstance(custom_rm_path, str):
         custom_rm_path = CustomFunctionConfig(path=custom_rm_path)
     rm_type = ((spec.rm_type if spec is not None else None) or metadata.get("rm_type") or args.rm_type or "").strip()
@@ -113,6 +120,15 @@ async def batched_async_rm(
         return None
 
     if args.custom_rm_path is not None:
+        # One batched function scores the whole group here, so a per-row path cannot apply.
+        # Refuse it instead of silently scoring those rows with the global function.
+        if rows := [
+            i for i, s in enumerate(samples) if isinstance(s.metadata, dict) and s.metadata.get("custom_rm_path")
+        ]:
+            raise ValueError(
+                f"metadata['custom_rm_path'] is set on group rows {rows}, but --group-rm with --custom-rm-path "
+                "scores the whole group with one batched function; drop one of the two"
+            )
         rm_function = load_function(args.custom_rm_path)
         fn_args = compute_custom_function_config(args, args.custom_rm_path)
         return await rm_function(fn_args, samples, **kwargs)
