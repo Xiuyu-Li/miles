@@ -16,11 +16,14 @@ this replaces missed every bound by 25x or more.
 Segment lengths are odd, so a ratio-2 group straddles a CP split; one segment is shorter than
 ratio 2, so it has no compressed key at all; and the samples are longer than the window and the
 indexer top-k, so the window clamp and the top-k selection both matter.
+
+The Engram n-gram hash of a packed stream is checked the same way, against each sample's own hash.
 """
 
 import os
 import sys
 from datetime import timedelta
+from types import SimpleNamespace
 
 import torch
 import torch.distributed as dist
@@ -33,7 +36,9 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from tests.ci.ci_register import register_cuda_ci
 
 from miles.backends.megatron_utils.parallel import PackedSeqParamsWithHostCuSeqlens
+from miles_plugins.models.deepseek_v4.ops.thd_utils import get_q_positions_thd
 from miles_plugins.models.deepseek_v4_1.deepseek_v4_1 import DeepSeekV41Attention, V41Runtime
+from miles_plugins.models.deepseek_v4_1.engram import DeepSeekV41Engram, compute_hash_multipliers
 
 register_cuda_ci(
     est_time=120,
@@ -53,6 +58,8 @@ SEGMENTS = (613, 290, 1, 505, 127)
 # The BSHD reference pads every sample to this length, as a BSHD micro-batch pads to its longest sample.
 BSHD_LEN = 640
 TOLERANCE = {"out": 1e-3, "dx": 2e-2, "grad": 3e-2}
+# Samples shorter and longer than the 4-gram look-back.
+ENGRAM_SEGMENTS = (5, 1, 2, 9, 3)
 
 
 def _config(cp: int, topk_backend: str) -> TransformerConfig:
@@ -199,12 +206,38 @@ def check(cp, topk_backend, ref):
     return errors
 
 
+def check_engram_hash():
+    """The packed stream's n-gram hash equals each sample's own; without positions it does not."""
+    max_ngram, vocab = 4, 1000
+    gen = torch.Generator(device="cuda").manual_seed(3)
+    engram = SimpleNamespace(
+        token_map=torch.randperm(vocab, generator=gen, device="cuda"),
+        multipliers=compute_hash_multipliers([1], max_ngram, vocab)[0].cuda(),
+        primes=torch.tensor([[1009, 1013], [1019, 1021], [1031, 1033]], device="cuda"),
+        offsets=torch.tensor([0, 1009, 2022, 3041, 4062, 5093], device="cuda"),
+        pad_id=7,
+        max_ngram_size=max_ngram,
+    )
+    ids = torch.randint(0, vocab, (1, sum(ENGRAM_SEGMENTS)), generator=gen, device="cuda")
+    cu = torch.tensor([0, *torch.tensor(ENGRAM_SEGMENTS).cumsum(0).tolist()], device="cuda", dtype=torch.int32)
+    packed_ids = DeepSeekV41Engram.hash_ids(engram, ids, get_q_positions_thd(cu, ids.size(1)))
+    alone = [DeepSeekV41Engram.hash_ids(engram, seg) for seg in ids.split(ENGRAM_SEGMENTS, dim=1)]
+    return torch.equal(packed_ids, torch.cat(alone, dim=1)) and not torch.equal(
+        DeepSeekV41Engram.hash_ids(engram, ids), packed_ids
+    )
+
+
 def main():
     rank, world = int(os.environ["RANK"]), int(os.environ["WORLD_SIZE"])
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
     dist.init_process_group("nccl", timeout=timedelta(seconds=600))
     cp_sizes = sorted({1, *(cp for cp in (2, 4) if world % cp == 0)})
     failed = []
+    engram_ok = check_engram_hash()
+    if rank == 0:
+        print(f"engram hash: {'ok' if engram_ok else 'FAIL'}")
+    if not engram_ok:
+        failed.append("engram hash")
     try:
         for topk_backend in ("canonical", "torch"):
             ref = reference(topk_backend)

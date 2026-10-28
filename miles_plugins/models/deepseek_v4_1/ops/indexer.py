@@ -14,7 +14,7 @@ from miles.kernels.position.rope import apply_rotary_emb
 from miles.kernels.quant.fake_quant import fake_quant_fp4
 from miles.utils.replay_base import indexer_replay_manager
 from miles_plugins.models.deepseek_v4.ops.norm import RMSNorm
-from miles_plugins.models.deepseek_v4_1.ops.thd import SegmentSpan
+from miles_plugins.models.deepseek_v4_1.ops.thd_utils import SegmentSpan
 
 
 def select_candidate_blocks(
